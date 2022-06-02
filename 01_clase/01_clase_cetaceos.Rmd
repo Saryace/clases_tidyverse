@@ -1,0 +1,140 @@
+---
+title: "01_clase_cetaceos"
+author: "saryace"
+date: "6/2/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Cargamos los datos desde Github (tidytuesday)
+```{r}
+library(tidyverse)
+
+cetaceos_raw <-
+  read.csv(
+    "https://raw.githubusercontent.com/rfordatascience/tidytuesday/master/data/2018/2018-12-18/allCetaceanData.csv"
+  )
+
+```
+
+### Glimpseamos
+```{r}
+
+cetaceos_raw %>%
+  glimpse()
+
+```
+
+### Miramos los datos
+```{r}
+
+cetaceos_raw %>%
+  count(acquisition, sort = TRUE)
+
+cetaceos_raw %>%
+  count(acquisition, originLocation, sort = TRUE)
+
+```
+
+### Limpiamos los datos
+```{r}
+
+cetaceos <-
+cetaceos_raw %>% 
+  select(-X) %>% 
+  mutate(birthYear = as.integer(birthYear))
+
+```
+
+### Cuanto viven?
+```{r}
+library(lubridate)
+
+cetaceos %>% 
+  filter(status == "Died") %>% 
+  select(birthYear,statusDate) %>% 
+  filter(!is.na(birthYear),!is.na(statusDate)) %>% 
+  mutate(edad = year(statusDate) - birthYear)  %>%
+  arrange(desc(edad))
+
+```
+
+### Las 10 especies mas frecuentes
+```{r}
+
+top_diez_especies <-
+  cetaceos %>%
+  count(species, sort = T) %>%
+  top_n(n = 10)
+
+top_diez_especies %>%
+  ggplot(aes(x = reorder(species, n), y = n)) +
+  geom_col(fill = "lightblue", color = "white") +
+  scale_y_log10() +
+  theme_minimal() +
+  labs(x = "Especie",
+       y = "Número de individuos") +
+  coord_flip() 
+```
+
+### Los más prolificos por especie
+```{r}
+cetaceos %>%
+  filter(!is.na(father)) %>%
+  group_by(species) %>% 
+  count(father, sort = T)
+
+```
+
+### Veamos cuando viven según sus caracteristicas
+
+```{r}
+
+analisis_vida <- cetaceos %>%
+  filter(status %in% c("Alive", "Died")) %>%
+  select(birthYear, statusDate, status, sex, acquisition, species) %>%
+  filter(!is.na(birthYear)) %>%
+  mutate(deathYear = case_when(
+    status == "Alive" ~ as.numeric(2017),
+    status == "Died" ~ as.numeric(year(statusDate))
+  )) %>%
+  mutate(
+    Edad_analisis = case_when(
+      deathYear == birthYear ~ "dudoso",
+      deathYear < birthYear ~ "dudoso",
+      TRUE ~ "ok"
+    )
+  ) %>%
+  filter(Edad_analisis == "ok") %>%
+  mutate(status = case_when(status == "Alive" ~ 0,
+                            status == "Died" ~ 1)) %>%
+  mutate(edad = deathYear - birthYear)
+  
+```
+
+```{r}
+library(survival)
+
+analisis_survival <- survfit(Surv(edad, status) ~1, analisis_vida)
+
+```
+
+```{r}
+library(broom)
+
+plot(analisis_survival) 
+
+tidy(analisis_survival)
+
+```
+
+```{r}
+tidy(analisis_survival) %>% 
+  ggplot(aes(time,estimate)) +
+  geom_line() +
+  geom_ribbon(aes(ymin=conf.low, ymax=conf.high), alpha = 0.3)
+
+```
